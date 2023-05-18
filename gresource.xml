@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/krokoziabla/noty">
+    <file>root_window.xml</file>
+    <file>major_notes.txt</file>
+  </gresource>
+</gresources>

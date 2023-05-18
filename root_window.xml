@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface domain="">
+  <requires lib="gtk" version="4.0"/>
+  <template class="RootWindow" parent="GtkApplicationWindow">
+    <child>
+      <object class="GtkDrawingArea" id="circle_of_fifths" />
+    </child>
+  </template>
+</interface>
