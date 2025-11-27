@@ -1,128 +1,77 @@
+extern void play_note (Alsa.SeqDevice device, int port, int note);
+
 [GtkTemplate (ui = "/krokoziabla/noty/root_window.xml")]
-class RootWindow : Gtk.ApplicationWindow
+class RootWindow : Gtk.ApplicationWindow, Actions
 {
-    public RootWindow(Gtk.Application app)
+    private Alsa.SeqDevice device;
+    private int port;
+    private Source source;
+    private State state = new Riddle (Params () {lower_octave = 2, upper_octave = 6, octave_size = 12});
+
+    [GtkChild]
+    private unowned CircleOfFifths circle_of_fifths;
+
+    public RootWindow (Gtk.Application app)
     {
         Object(application: app);
 
-        circle_of_fifths.set_draw_func (this.drawCircleOfFifths);
-
         var stream = new DataInputStream (resources_open_stream ("/krokoziabla/noty/major_notes.txt", 0));
+        CircleOfFifths.SectorSpec[] colors = {};
+
         while (true)
         {
-            var transparent = new Cairo.Pattern.rgba (0, 0, 0, 0);
             string? line = stream.read_line_utf8 ();
             if (line == null)
                 break;
-            colors.@set (line, transparent);
+            colors += CircleOfFifths.SectorSpec () { label = line, pattern = new Cairo.Pattern.rgba (0, 0, 0, 0) };
         }
         stream.close ();
 
-        colors.@set("C", new Cairo.Pattern.rgba (1, 0, 0, 1));
+        circle_of_fifths.colors = colors;
 
-        sweep = 2 * Math.PI / colors.size;
+        Alsa.SeqDevice.open (out device, "default", Alsa.SeqOpenMode.DUPLEX, 0);
+        port = device.create_simple_port ("Noty", Alsa.SeqPortCap.WRITE | Alsa.SeqPortCap.READ, Alsa.SeqPortType.APPLICATION);
+        device.connect_from (port, 40, 0);
+        device.connect_to (port, 128, 0);
+
+        source = new AlsaSource (device, (event) => {
+            if (event.type == Alsa.SeqEventType.NOTEON) {
+                state = state.key_pressed (event.note.note, this);
+                state.perform_eigenactions (this);
+            }
+            return true;
+        });
+        source.attach ();
+
+        var click = new Gtk.GestureClick ();
+        click.pressed.connect ((click, n_press, x, y) => {
+            state = state.mouse_clicked (this);
+            state.perform_eigenactions (this);
+        });
+        circle_of_fifths.add_controller (click);
+    }
+    ~RootWindow ()
+    {
+        device.delete_simple_port (port);
+        device.close ();
     }
 
-    [GtkChild]
-    private unowned Gtk.DrawingArea circle_of_fifths;
-    private const int big_amp = 10;
-    private const int little_amp = 6;
-
-    private Gee.Map<string, Cairo.Pattern> colors = new Gee.HashMap<string, Cairo.Pattern> ();
-    private double sweep;
-
-
-    void drawCircleOfFifths (Gtk.DrawingArea drawing_area, Cairo.Context cr, int width, int height)
+    private void play (int note)
     {
-        var radius = int.min (width, height) / 2;
+        play_note (device, port, note);
+    }
+    private void draw (int? wrong, int? right)
+    {
+        for (int i = 0; i < circle_of_fifths.colors.length; ++i) {
+            var note = (i + 3) * 7 % circle_of_fifths.colors.length;
 
-        with (cr)
-        {
-            set_line_width (0.1);
-            translate (radius, radius);
-
-            save ();
-                scale (radius / big_amp, radius / big_amp);
-                rotate (-sweep / 2);
-
-                var i = colors.map_iterator ();
-                if (i.next ())
-                {
-                    Cairo.Pattern? color = i.get_value ();
-                    while (color != null)
-                    {
-                        set_source (color);
-                        var span = 1;
-
-                        color = null;
-                        while (i.next ())
-                        {
-                            color = i.get_value ();
-                            if (color != get_source ())
-                                break;
-                            ++span;
-                        }
-
-                        arc (0.0, 0.0, big_amp, 0.0, span * sweep);
-                        rotate (span * sweep);
-                        arc_negative (0.0, 0.0, little_amp, 0.0, -span * sweep);
-                        fill ();
-                    }
-                }
-
-                set_source (new Cairo.Pattern.rgb (0, 0, 0));
-
-                arc (0, 0, big_amp, 0, 2 * Math.PI);
-                stroke ();
-                arc (0, 0, little_amp, 0, 2 * Math.PI);
-                stroke ();
-
-                if (colors.size % 4 == 0 )
-                {
-                    for (int j = 0; j < colors.size / 4; ++j)
-                    {
-                        move_to (little_amp, 0);
-                        line_to (big_amp, 0);
-                        move_to (-little_amp, 0);
-                        line_to (-big_amp, 0);
-                        move_to (0, little_amp);
-                        line_to (0, big_amp);
-                        move_to (0, -little_amp);
-                        line_to (0, -big_amp);
-                        stroke();
-                        rotate (sweep);
-                    }
-                }
-                else
-                    for (int j = 0; j < colors.size; ++j)
-                    {
-                        move_to (little_amp, 0);
-                        line_to (big_amp, 0);
-                        stroke();
-                        rotate (sweep);
-                    }
-            restore ();
-
+            if (wrong != null && wrong % circle_of_fifths.colors.length == note)
+                circle_of_fifths.colors[i].pattern = new Cairo.Pattern.rgb (1, 0, 0);
+            else if (right != null && right % circle_of_fifths.colors.length == note)
+                circle_of_fifths.colors[i].pattern = new Cairo.Pattern.rgb (0, 1, 0);
+            else
+                circle_of_fifths.colors[i].pattern = new Cairo.Pattern.rgba (0, 0, 0, 0);
         }
-
-        var layout = Pango.cairo_create_layout (cr);
-        var font = Pango.cairo_create_context (cr).get_font_description ().copy_static ();
-        font.set_size (Pango.SCALE * radius * (big_amp - little_amp) / 2 / big_amp);
-        layout.set_font_description (font);
-        var text_radius = radius * (big_amp + little_amp) / 2 / big_amp;
-
-        var i = colors.map_iterator ();
-        var phi = 0.0;
-        while (i.next ())
-        {
-            layout.set_text (i.get_key (), -1);
-            layout.get_size (out width, out height);
-            cr.move_to (
-                text_radius * Math.cos (phi) - width / Pango.SCALE / 2,
-                text_radius * Math.sin (phi) - height / Pango.SCALE / 2
-            );
-            phi += sweep;
-            Pango.cairo_show_layout (cr, layout);
-        }
+        circle_of_fifths.queue_draw ();
     }
 }

@@ -3,7 +3,15 @@
   <requires lib="gtk" version="4.0"/>
   <template class="RootWindow" parent="GtkApplicationWindow">
     <child>
-      <object class="GtkDrawingArea" id="circle_of_fifths" />
+      <object class="GtkBox">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="CircleOfFifths" id="circle_of_fifths">
+            <property name="focusable">true</property>
+            <property name="vexpand">true</property>
+          </object>
+        </child>
+      </object>
     </child>
   </template>
 </interface>
